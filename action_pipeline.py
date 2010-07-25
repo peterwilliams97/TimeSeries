@@ -8,7 +8,7 @@ Created on 25/07/2010
 """
 
 from __future__ import division
-import  copy, random, numpy as NP, scipy as SP, pylab as PL, ols, time, optparse, os, csv, run_weka
+import  copy, random, time, optparse, os, numpy as NP, scipy as SP, pylab as PL, ols, csv, run_weka
 
 def showArray(name, a):
     """ Display a numpy array """
@@ -157,9 +157,9 @@ def test2():
     PL.plot(masked_t, masked_s)
     s_range = PL.amax(masked_s) - PL.amin(masked_s)
     PL.axis([PL.amin(masked_t), PL.amax(masked_t), PL.amin(masked_s) - s_range*0.1, PL.amax(masked_s) + s_range*0.1 ])
-    PL.xlabel('time (days)')
-    PL.ylabel('downloads')
-    PL.title('Dowloads over time')
+    PL.xlabel('Time (days)')
+    PL.ylabel('Downloads')
+    PL.title('Dowlnoads over time')
     PL.show()    
         
 if __name__ == '__main__':
