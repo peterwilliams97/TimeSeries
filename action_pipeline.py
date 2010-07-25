@@ -8,7 +8,7 @@ Created on 25/07/2010
 """
 
 from __future__ import division
-import  copy, random, time, optparse, os, numpy as NP, scipy as SP, pylab as PL, ols, csv, run_weka
+import  copy, random, time, optparse, os, numpy as NP, scipy as SP, pylab as PL, ols, statistics, csv, run_weka
 
 def showArray(name, a):
     """ Display a numpy array """
@@ -16,7 +16,7 @@ def showArray(name, a):
     print a
     print '--------------------'
     
-def getDaysOfWeekToKeep(vector, threshold):
+def getDaysOfWeekToKeep(vector, threshold=0.2):
     """ Given a vector of daily values, determines which days are outliers
         based on threshold * median
         Returns days in week to keep """
@@ -26,9 +26,9 @@ def getDaysOfWeekToKeep(vector, threshold):
             day_vector = [vector[i] for i in range(day, (len(vector)//7)*7, 7)]
             average_for_day.append(getMean(day_vector))
     else:
-        average_for_day = [getMean([vector[i] for i in range(day, (len(vector)//7)*7, 7)]) for day in range(7)]   
+        average_for_day = [statistics.getMean([vector[i] for i in range(day, (len(vector)//7)*7, 7)]) for day in range(7)]   
     median_day = sorted(average_for_day)[3]
-    return [day for day in range(7) if average_for_day[day] >= median_day *threshold]
+    return [day for day in range(7) if average_for_day[day] >= median_day*threshold]
 
 def getDaysOfWeekMask(days_to_keep, length):
     """ Make a mask based on days of the week """
@@ -48,14 +48,63 @@ def applyMask1D(vector, mask):
             count = count + 1
     return y
 
-def getTrend(t, y):
+def getTrend(t, y, mask = None):
     """ Find the trend in a time-series y
         With times vector t """
-   # t = NP.arange(vector.shape[0])
+    if mask:
+        t = applyMask1D(t, mask)
+        y = applyMask1D(y, mask)
     assert(t.shape[0] == y.shape[0])
     mymodel = ols.ols(y,t,'y',['t'])
     return mymodel.b  # return coefficients
 
+def removeTrend1D(trend, t, y, mask):
+    """ Remove trend from numpy arrays y vs t with specified mask.
+        Returns de-trended data """
+    masked_t = applyMask1D(t, mask)
+    masked_y = applyMask1D(y, mask)
+    assert(masked_t.shape[0] == masked_y.shape[0])  
+    return NP.array([masked_y[i] - (trend[0] + masked_t[i] * trend[1]) for i in range(masked_t.shape[0])])
+
+def addTrend1D(trend, t, y, mask):
+    """ Add trend from numpy arrays v vs t with specified mask.
+        Returns de-trended data """
+    masked_t = applyMask1D(t, mask)
+    masked_y = applyMask1D(y, mask)
+    assert(masked_t.shape[0] == masked_y.shape[0])  
+    return NP.array([masked_y[i] + (trend[0] + masked_t[i] * trend[1]) for i in range(masked_t.shape[0])])
+
+def timeSeriesToMatrixArray(time_series, masks, max_lag):
+    """ Generate Weka format csv file for two time series.
+        x_series and y_series which is believed to depend on x_series
+        max_lag is number of lags in dependence
+        
+        !@#$ This is hard with numpy arrays. Use python lists
+    """
+    print 'timeSeriesToMatrixArray time_series.shape', time_series.shape, 'max_lag', max_lag
+    num_rows = time_series.shape[1] - max_lag 
+    assert(num_rows >= 1)
+    regression_matrix = NP.zeros((num_rows, 2*max_lag + 1))
+    regression_mask = NP.zeros((num_rows, 2*max_lag + 1))
+    for i in range(num_rows):
+        regression_matrix[i,0:max_lag] = time_series[0,i:i+max_lag] 
+        regression_matrix[i,max_lag:2*max_lag+1] = time_series[1,i:i+max_lag+1]
+        regression_mask[i,0:max_lag] = masks[0,i:i+max_lag] 
+        regression_mask[i,max_lag:2*max_lag+1] = masks[1,i:i+max_lag+1] 
+    return (regression_matrix, regression_mask)
+
+def timeSeriesToMatrixCsv(regression_matrix_csv, time_series, masks, max_lag):
+    """ Convert a 2 row time series into a 
+    regression matrix """
+    regression_matrix,regression_mask = timeSeriesToMatrixArray(time_series, max_lag)
+    header_x = ['x[%0d]' % i for i in range(-max_lag,0)]
+    header_y = ['y[%0d]' % i for i in range(-max_lag,1)]
+    header = header_x + header_y
+    regression_data = [str(regression_matrix[i,j]) if regression_mask[i,j] else '?' 
+                        for i in range(regression_matrix[0])
+                            for j in range(regression_matrix[1]) ]
+    csv.writeCsv(regression_matrix_csv, regression_data, header)
+    
 def analyzeTimeSeries(filename, max_lag, fraction_training):
     """ Main function. 
         Analyze time series in 'filename' (assumed to be a CSV for now)
@@ -79,12 +128,27 @@ def analyzeTimeSeries(filename, max_lag, fraction_training):
     training_time_series = NP.transpose(NP.array(time_series_data[:number_training]))
     print 'training_time_series.shape', training_time_series.shape
     
-    num_series = training_time_series.shape[0]
-    days_to_keep = [getDaysOfWeekToKeep(training_time_series[i,:]) for i in range(num_series)]
-    filtered_time_series = NP.vstack([filterDaysOfWeek(training_time_series[i,:], days_to_keep[i]) for i in range(num_series)])
-    print 'filtered_time_series.shape', filtered_time_series.shape
+    training_t = NP.arange(training_time_series.shape[1])
     
-    trends = [getTrend(training_time_series[i,:]) for i in range(num_series)]
+    num_series = training_time_series.shape[0]
+    num_rows =  training_time_series.shape[1]
+    
+    days_to_keep = [getDaysOfWeekToKeep(training_time_series[i,:]) for i in range(num_series)]
+    
+    training_masks = [getDaysOfWeekMask(days_to_keep[i], num_rows) for i in range(num_series)]
+    
+    trends = [getTrend(training_t, training_time_series[i,:], training_masks[i]) for i in range(num_series)]
+    
+    x0 = removeTrend1D(trends[0], training_t, training_time_series[0], training_masks[0])
+    print 'x0.shape', x0.shape
+    x = [removeTrend1D(trends[i], training_t, training_time_series[i], training_masks[i]) for i in range(num_series)]
+    detrended_training_time_series = NP.zeros([num_series, x0.shape[0]])
+    for i in range(num_series):
+        detrended_training_time_series[i,:] = x[i]
+    print 'detrended_training_time_series.shape', detrended_training_time_series.shape
+   # filtered_time_series = NP.vstack([filterDaysOfWeek(training_time_series[i,:], days_to_keep[i]) for i in range(num_series)])
+   # print 'filtered_time_series.shape', filtered_time_series.shape
+  
     timeSeriesToMatrixCsv(regression_matrix_csv, training_time_series, max_lag)
     run_weka.runMLPTrain(regression_matrix_csv, results_filename, model_filename, True)
  
