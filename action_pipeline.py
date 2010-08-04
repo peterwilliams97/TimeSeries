@@ -60,11 +60,14 @@ def getTrend(t, y, mask = None):
 
 def removeTrend1D(trend, t, y, mask):
     """ Remove trend from numpy arrays y vs t with specified mask.
-        Returns de-trended data """
-    masked_t = applyMask1D(t, mask)
-    masked_y = applyMask1D(y, mask)
+        Returns de-trended data
+        NOTE: This must be applied to all data, not just the unmasked part """
+    masked_t = t # applyMask1D(t, mask)
+    masked_y = y # applyMask1D(y, mask)
     assert(masked_t.shape[0] == masked_y.shape[0])  
-    return NP.array([masked_y[i] - (trend[0] + masked_t[i] * trend[1]) for i in range(masked_t.shape[0])])
+    yret = NP.array([masked_y[i] - (trend[0] + masked_t[i] * trend[1]) for i in range(masked_t.shape[0])])
+    print "removeTrend1D()", len(mask), t.shape, y.shape, masked_t.shape, masked_y.shape, yret.shape
+    return yret
 
 def addTrend1D(trend, t, y, mask):
     """ Add trend from numpy arrays v vs t with specified mask.
@@ -89,20 +92,28 @@ def timeSeriesToMatrixArray(time_series, masks, max_lag):
     for i in range(num_rows):
         regression_matrix[i,0:max_lag] = time_series[0,i:i+max_lag] 
         regression_matrix[i,max_lag:2*max_lag+1] = time_series[1,i:i+max_lag+1]
-        regression_mask[i,0:max_lag] = masks[0,i:i+max_lag] 
-        regression_mask[i,max_lag:2*max_lag+1] = masks[1,i:i+max_lag+1] 
+        regression_mask[i,0:max_lag] = masks[0][i:i+max_lag] 
+        regression_mask[i,max_lag:2*max_lag+1] = masks[1][i:i+max_lag+1] 
+        # print regression_matrix[i,:]
     return (regression_matrix, regression_mask)
 
 def timeSeriesToMatrixCsv(regression_matrix_csv, time_series, masks, max_lag):
     """ Convert a 2 row time series into a 
     regression matrix """
-    regression_matrix,regression_mask = timeSeriesToMatrixArray(time_series, max_lag)
+    regression_matrix,regression_mask = timeSeriesToMatrixArray(time_series, masks, max_lag)
     header_x = ['x[%0d]' % i for i in range(-max_lag,0)]
     header_y = ['y[%0d]' % i for i in range(-max_lag,1)]
     header = header_x + header_y
-    regression_data = [str(regression_matrix[i,j]) if regression_mask[i,j] else '?' 
-                        for i in range(regression_matrix[0])
-                            for j in range(regression_matrix[1]) ]
+    regression_data = [[str(regression_matrix[i,j]) if regression_mask[i,j] else '?' 
+                        for j in range(regression_matrix.shape[1])]
+                            for i in range(regression_matrix.shape[0])]
+    print regression_data[0]
+    if False:
+        for i in range(regression_matrix.shape[0]):
+            for j in range(regression_matrix.shape[1]):
+                print '%2d,%2d, %6.1f, %.0f, %s' % (i, j,regression_matrix[i,j], regression_mask[i,j], str(regression_matrix[i,j]) if regression_mask[i,j] else '?')
+            exit() 
+    
     csv.writeCsv(regression_matrix_csv, regression_data, header)
     
 def analyzeTimeSeries(filename, max_lag, fraction_training):
@@ -112,6 +123,11 @@ def analyzeTimeSeries(filename, max_lag, fraction_training):
         Use the first fraction_training of data for training and the 
         remainder for testing
     """
+    
+    base_name = os.path.splitext(filename)[0]
+    regression_matrix_csv = base_name + '.regression.csv'
+    results_filename = base_name + '.results' 
+    model_filename = base_name + '.model' 
     
     """ Assume input file is a CSV with a header row """
     time_series_data, header = csv.readCsvFloat2(filename, True)
@@ -131,7 +147,7 @@ def analyzeTimeSeries(filename, max_lag, fraction_training):
     training_t = NP.arange(training_time_series.shape[1])
     
     num_series = training_time_series.shape[0]
-    num_rows =  training_time_series.shape[1]
+    num_rows = training_time_series.shape[1]
     
     days_to_keep = [getDaysOfWeekToKeep(training_time_series[i,:]) for i in range(num_series)]
     
@@ -143,13 +159,15 @@ def analyzeTimeSeries(filename, max_lag, fraction_training):
     print 'x0.shape', x0.shape
     x = [removeTrend1D(trends[i], training_t, training_time_series[i], training_masks[i]) for i in range(num_series)]
     detrended_training_time_series = NP.zeros([num_series, x0.shape[0]])
+    print 'detrended_training_time_series.shape', detrended_training_time_series.shape
     for i in range(num_series):
+        print 'x[%0d].shape'%i, x[i].shape
         detrended_training_time_series[i,:] = x[i]
     print 'detrended_training_time_series.shape', detrended_training_time_series.shape
    # filtered_time_series = NP.vstack([filterDaysOfWeek(training_time_series[i,:], days_to_keep[i]) for i in range(num_series)])
    # print 'filtered_time_series.shape', filtered_time_series.shape
   
-    timeSeriesToMatrixCsv(regression_matrix_csv, training_time_series, max_lag)
+    timeSeriesToMatrixCsv(regression_matrix_csv, detrended_training_time_series, training_masks, max_lag)
     run_weka.runMLPTrain(regression_matrix_csv, results_filename, model_filename, True)
  
 def test1():
