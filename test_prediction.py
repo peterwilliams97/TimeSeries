@@ -27,7 +27,7 @@ def makeTestFiles(create_files):
             for purchase_max_lag in (2,4,7,14,28):
                 params_list.append((purchases_per_download_pc,other_purchase_ratio_pc,purchase_max_lag))
     
-                params_list = [(80,20,5)] 
+    params_list = [(99,1,5)] 
     print len(params_list), 'test files'    
         
     for purchases_per_download_pc,other_purchase_ratio_pc,purchase_max_lag in params_list:
@@ -45,7 +45,7 @@ if __name__ == '__main__':
     create_files = True
     test_file_names = makeTestFiles(create_files)
     print len(test_file_names), 'test files'
-    max_lag = 40
+    max_lag = 20
     fraction_training = 0.8
     for filename in test_file_names:
         if False:

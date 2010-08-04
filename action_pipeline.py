@@ -107,6 +107,8 @@ def timeSeriesToMatrixCsv(regression_matrix_csv, time_series, masks, max_lag):
     regression_data = [[str(regression_matrix[i,j]) if regression_mask[i,j] else '?' 
                         for j in range(regression_matrix.shape[1])]
                             for i in range(regression_matrix.shape[0])]
+    # Eliminate rows with no output 
+    regression_data = [x for x in regression_data if not x[len(x)-1] == '?']
     print regression_data[0]
     if False:
         for i in range(regression_matrix.shape[0]):
@@ -168,7 +170,7 @@ def analyzeTimeSeries(filename, max_lag, fraction_training):
    # print 'filtered_time_series.shape', filtered_time_series.shape
   
     timeSeriesToMatrixCsv(regression_matrix_csv, detrended_training_time_series, training_masks, max_lag)
-    run_weka.runMLPTrain(regression_matrix_csv, results_filename, model_filename, True)
+    run_weka.runMLPTrain(regression_matrix_csv, results_filename, model_filename, True, '-H 4')
  
 def test1():
     vector_full = NP.array([1.0, 2.5, 2.8, 4.1, 5.1, 5.9, 6.9, 8.1])
