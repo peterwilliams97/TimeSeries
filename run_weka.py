@@ -111,7 +111,41 @@ def getPredictionsRegression(filename):
 			found_header = True
 	return results
 
-	
+def getCoefficients(filename):	
+	""" Extract the Weka prediction from results stored in filename """
+	checkExists('Predictions file', filename)
+	coeff_file = [x for x in file(filename, 'r').read().strip().split('\n') if len(x) > 0]
+	all_nodes = []
+	state = 0
+	for line in coeff_file:
+		parts = [x for x in line.strip().split(' ') if len(x) > 0]
+		#print parts
+		if parts[0] == 'Class':
+			break
+		if len(parts) > 1 and parts[1] == 'Node':
+			assert(state == 0 or state == 3)
+			node = {'type':parts[0], 'number':int(parts[2])}
+			all_nodes.append(node)
+			state = 1
+		elif parts[0] == 'Inputs':
+			assert(state == 1)
+			state = 2
+		elif parts[0] == 'Threshold':
+			assert(state == 2)
+			state = 3
+			node['threshold'] = float(parts[1])
+			node['attribs'] = {}
+		elif state == 3:
+			key = parts[1]
+			val = float(parts[2])
+			#print key, val
+			node['attribs'][key] = val
+	nodes = {}
+	for type in ['Linear', 'Sigmoid']:
+		nodes[type] = [n for n in all_nodes if n['type'] == type]
+	return nodes
+
+		
 """ 
 	You need to the environment variable 'WEKA_ROOT' to the location of 
 	the Weka installation on your computer. 
