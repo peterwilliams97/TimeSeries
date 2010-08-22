@@ -114,12 +114,7 @@ def timeSeriesToMatrixCsv(regression_matrix_csv, time_series, masks, max_lag):
     # Eliminate rows with no output 
     regression_data = [x for x in regression_data if not x[len(x)-1] == '?']
     print regression_data[0]
-    if False:
-        for i in range(regression_matrix.shape[0]):
-            for j in range(regression_matrix.shape[1]):
-                print '%2d,%2d, %6.1f, %.0f, %s' % (i, j,regression_matrix[i,j], regression_mask[i,j], str(regression_matrix[i,j]) if regression_mask[i,j] else '?')
-            exit() 
-    
+        
     csv.writeCsv(regression_matrix_csv, regression_data, header)
     
 regex_node = re.compile(r'[x,y]\[-?\d+\]')
@@ -165,10 +160,10 @@ def applyCoefficients(coefficients, x, y, N):
     val = node['threshold'] 
     weights = node['attribs']     
     assert(len(sigmoids) == len(weights))
-    print 'sigmoids = ', sigmoids
-    print 'weights = ', weights
+   # print 'sigmoids = ', sigmoids
+    #print 'weights = ', weights
     for k in weights.keys():
-        print k
+        # print k
         val = val + weights[k]*sigmoids[int(k)]
     return logit(val)
    
@@ -206,6 +201,7 @@ def analyzeTimeSeries(filename, max_lag, fraction_training):
     regression_matrix_csv = base_name + '.regression.csv'
     results_filename = base_name + '.results' 
     model_filename = base_name + '.model' 
+    prediction_matrix_csv = base_name + '.prediction.csv'
     
     """ Assume input file is a CSV with a header row """
     time_series_data, header = csv.readCsvFloat2(filename, True)
@@ -262,8 +258,20 @@ def analyzeTimeSeries(filename, max_lag, fraction_training):
     predictions = predictTimeSeries(coefficients, t, full_x[0], full_x[1], number_training, max_lag, masks)
     print '--------------------------------------------'
     print 'predictions =', predictions.shape
-    print predictions
-    # retrend !@#$
+    # print predictions
+    predicted_time_series = NP.vstack([t, full_x[0], full_x[1], predictions])
+    print 't.shape', t.shape
+    print 'full_x[0].shape', full_x[0].shape
+    print 'full_x[1].shape', full_x[1].shape
+    print 'predictions.shape', predictions.shape
+    print 'predicted_time_series.shape', predicted_time_series.shape
+    # retrend !@#$\\
+    prediction_header = ['t', 'x', 'y', 'y_pred']
+    predicted_time_series_data = [[str(predicted_time_series[i,j]) 
+                                    for i in range(predicted_time_series.shape[0])]
+                                        for j in range(predicted_time_series.shape[1])]
+                            
+    csv.writeCsv(prediction_matrix_csv, predicted_time_series_data, prediction_header)
     
 def test1():
     vector_full = NP.array([1.0, 2.5, 2.8, 4.1, 5.1, 5.9, 6.9, 8.1])
