@@ -71,15 +71,15 @@ def removeTrend1D(trend, t, y, mask):
     assert(t.shape[0] == y.shape[0])  
     yret = NP.array([y[i] - (trend[0] + t[i] * trend[1]) for i in range(t.shape[0])])
     print "removeTrend1D()", len(mask), t.shape, y.shape, yret.shape
+    return y # !@#$ currently de-activated
     return yret
 
 def addTrend1D(trend, t, y, mask):
     """ Add trend from numpy arrays v vs t with specified mask.
         Returns de-trended data """
-    masked_t = applyMask1D(t, mask)
-    masked_y = applyMask1D(y, mask)
-    assert(masked_t.shape[0] == masked_y.shape[0])  
-    return NP.array([masked_y[i] + (trend[0] + masked_t[i] * trend[1]) for i in range(masked_t.shape[0])])
+    assert(t.shape[0] == y.shape[0])  
+    return y # !@#$ currently de-activated
+    return NP.array([y[i] + (trend[0] + t[i] * trend[1]) for i in range(t.shape[0])])
 
 def timeSeriesToMatrixArray(time_series, masks, max_lag):
     """ Generate Weka format csv file for two time series.
@@ -91,20 +91,47 @@ def timeSeriesToMatrixArray(time_series, masks, max_lag):
     print 'timeSeriesToMatrixArray time_series.shape', time_series.shape, 'max_lag', max_lag
     num_rows = time_series.shape[1] - max_lag 
     assert(num_rows >= 1)
-    regression_matrix = NP.zeros((num_rows, 2*max_lag + 1))
+    for i in range(2):
+        describeNPVector('time_series[%0d]'%i, time_series[i])
+    regression_matrix = NP.zeros((num_rows, 2*max_lag + 1), dtype=float)
     regression_mask = NP.zeros((num_rows, 2*max_lag + 1))
-    for i in range(num_rows):
+    for i in range(max_lag):
+        #print 'regression_mask[i,0:2*max_lag+1]', regression_mask[i,0:2*max_lag+1]
         regression_matrix[i,0:max_lag] = time_series[0,i:i+max_lag] 
         regression_matrix[i,max_lag:2*max_lag+1] = time_series[1,i:i+max_lag+1]
         regression_mask[i,0:max_lag] = masks[0][i:i+max_lag] 
         regression_mask[i,max_lag:2*max_lag+1] = masks[1][i:i+max_lag+1] 
+        #print 'time_series[0,i:i+max_lag]', time_series[0,i:i+max_lag]
+        #print 'time_series[1,i:i+max_lag+1]', time_series[1,i:i+max_lag+1]
+        #print 'regression_matrix[i,0:2*max_lag+1]', regression_matrix[i,0:2*max_lag+1]
+        #print 'regression_matrix[i]', regression_matrix[i]
+        #exit()
         # print regression_matrix[i,:]
-    return (regression_matrix, regression_mask)
+    # Normalize regression_matrix to mean 0 and stddev 1
+    means   = {'x': NP.zeros(max_lag), 'y': NP.zeros(max_lag), 'z': 0.0}  
+    stddevs = {'x': NP.zeros(max_lag), 'y': NP.zeros(max_lag), 'z': 0.0}  
+    all_means = NP.mean(regression_matrix, axis=0)  
+    all_stddevs = NP.std(regression_matrix, axis=0)    
+    means['x'] = all_means[0:max_lag]
+    stddevs['x'] = all_stddevs[0:max_lag]
+    means['y'] = all_means[max_lag:2*max_lag]
+    stddevs['y'] = all_stddevs[max_lag:2*max_lag]
+    means['z'] = all_means[2*max_lag]
+    stddevs['z'] = all_stddevs[2*max_lag]
+   
+    #print 'all_means', all_means
+    #print 'all_stddevs', all_stddevs
+    print 'means', means
+    print 'stddevs', stddevs
+   
+    #exit()
+    regression_matrix[2*max_lag:] = (regression_matrix[2*max_lag,:]-means['z'])/stddevs['z']
+    return (regression_matrix, regression_mask, means, stddevs)
 
 def timeSeriesToMatrixCsv(regression_matrix_csv, time_series, masks, max_lag):
     """ Convert a 2 row time series into a 
     regression matrix """
-    regression_matrix,regression_mask = timeSeriesToMatrixArray(time_series, masks, max_lag)
+    regression_matrix,regression_mask, means, stddevs = timeSeriesToMatrixArray(time_series, masks, max_lag)
     header_x = ['x[%0d]' % i for i in range(-max_lag,0)]
     header_y = ['y[%0d]' % i for i in range(-max_lag,1)]
     header = header_x + header_y
@@ -116,6 +143,7 @@ def timeSeriesToMatrixCsv(regression_matrix_csv, time_series, masks, max_lag):
     print regression_data[0]
         
     csv.writeCsv(regression_matrix_csv, regression_data, header)
+    return (means, stddevs) 
     
 regex_node = re.compile(r'[x,y]\[-?\d+\]')
 regex_node_letter = re.compile(r'[x,y]')
@@ -135,7 +163,7 @@ def parseNodeName(name):
     raise Exception  # Should never happen
   
           
-def applyCoefficients(coefficients, x, y, N):
+def applyCoefficients(coefficients, means, stddevs, x, y, N):
     """ Apply regression coefficients to two columns of time series data to predict 
         y value of next time
         x is length N [0,-N-1], y is length N-1 [-1,-N-2]
@@ -143,7 +171,7 @@ def applyCoefficients(coefficients, x, y, N):
         
     sigmoids = {}
     for node in coefficients['Sigmoid']:
-        val = node['threshold']  
+        val = -node['threshold']  
         weights = node['attribs']  
         for k in weights.keys():
             #print k
@@ -151,13 +179,13 @@ def applyCoefficients(coefficients, x, y, N):
             #print 'k =', k, ', letter =', letter, ', i =', i, ', i+N =', i+N 
             assert(i+N >= 0)
             z = x if letter == 'x' else y 
-            val = val + weights[k] * z[i+N]
+            val = val + weights[k] * (z[i+N]-means[letter][i])/stddevs[letter][i]
         #print "int(node['number']) = ", int(node['number'])
         #print 'val =', val
         sigmoids[int(node['number'])] = logit(val)
   
     node = coefficients['Linear'][0]
-    val = node['threshold'] 
+    val = -node['threshold'] 
     weights = node['attribs']     
     assert(len(sigmoids) == len(weights))
    # print 'sigmoids = ', sigmoids
@@ -165,11 +193,11 @@ def applyCoefficients(coefficients, x, y, N):
     for k in weights.keys():
         # print k
         val = val + weights[k]*sigmoids[int(k)]
-    return logit(val)
+    return logit(val)*stddevs['z'] + means['z']
    
     
  
-def predictTimeSeries(coefficients, t, x, y, n_start, max_lag, mask):
+def predictTimeSeries(coefficients, means, stddevs, t, x, y, n_start, max_lag, mask):
     """ Make predictions of numpy array time series x,y vs t with specified mask.
         Returns predicted y values
         x: 1 2 3 4 5 6 7 8 9
@@ -186,8 +214,20 @@ def predictTimeSeries(coefficients, t, x, y, n_start, max_lag, mask):
     for i in range(n_start, yret.shape[0]):
         xs = x[i-max_lag:i+1]
         ys = yret[i-max_lag:i]
-        yret[i] = applyCoefficients(coefficients, xs, ys, max_lag)
+        yret[i] = applyCoefficients(coefficients, means, stddevs,  xs, ys, max_lag)
+        print i, yret[i]
+    #exit() # !@#$
     return yret 
+
+def describeNPVector(name, x):
+    """ Describe a 1d numpy array """
+    print '   ', name, x.shape[0], NP.mean(x)
+    
+def describeNPArray(name, x):
+    """ Describe a 2d numpy array """
+    print ' ', name, x.shape
+    for i in range(x.shape[0]):
+        describeNPVector('%s[%d]' % (name, i), x[i,:])
     
 def analyzeTimeSeries(filename, max_lag, fraction_training):
     """ Main function. 
@@ -213,8 +253,8 @@ def analyzeTimeSeries(filename, max_lag, fraction_training):
     assert(number_training > max_lag)
     
     time_series = NP.transpose(NP.array(time_series_data))
-    print 'time_series.shape', time_series.shape
-    
+    describeNPArray('time_series', time_series)
+        
     training_time_series = NP.transpose(NP.array(time_series_data[:number_training]))
     print 'training_time_series.shape', training_time_series.shape
     
@@ -232,16 +272,23 @@ def analyzeTimeSeries(filename, max_lag, fraction_training):
     trends = [getTrend(training_t, training_time_series[i,:], training_masks[i]) for i in range(num_series)]
     
     x = [removeTrend1D(trends[i], training_t, training_time_series[i], training_masks[i]) for i in range(num_series)]
+    for i in range(num_series):
+        describeNPVector('x[%0d]'%i, x[i])
     detrended_training_time_series = NP.zeros([num_series, x[0].shape[0]])
     print 'detrended_training_time_series.shape', detrended_training_time_series.shape
     for i in range(num_series):
         print 'x[%0d].shape'%i, x[i].shape
         detrended_training_time_series[i,:] = x[i]
     print 'detrended_training_time_series.shape', detrended_training_time_series.shape
-   # filtered_time_series = NP.vstack([filterDaysOfWeek(training_time_series[i,:], days_to_keep[i]) for i in range(num_series)])
-   # print 'filtered_time_series.shape', filtered_time_series.shape
-  
-    timeSeriesToMatrixCsv(regression_matrix_csv, detrended_training_time_series, training_masks, max_lag)
+    # filtered_time_series = NP.vstack([filterDaysOfWeek(training_time_series[i,:], days_to_keep[i]) for i in range(num_series)])
+    # print 'filtered_time_series.shape', filtered_time_series.shape
+   
+    for i in range(num_series):
+        describeNPVector('detrended_training_time_series[%0d]'%i, detrended_training_time_series[i])
+        
+    means, stddevs = timeSeriesToMatrixCsv(regression_matrix_csv, detrended_training_time_series, training_masks, max_lag)
+    print 'means', means
+    print 'stddevs', stddevs
     run_weka.runMLPTrain(regression_matrix_csv, results_filename, model_filename, True, '-H 4')
     coefficients = run_weka.getCoefficients(results_filename)
    
@@ -249,21 +296,32 @@ def analyzeTimeSeries(filename, max_lag, fraction_training):
     print 'coefficients', len(coefficients)
     print coefficients
     print '--------------------------------------------'
-    
-    full_x = [removeTrend1D(trends[i], t, time_series[i], masks[i]) for i in range(num_series)]
-    detrended_time_series = NP.zeros([num_series, full_x[0].shape[0]])
+    print 'means', len(means)
+    print means
+    print '--------------------------------------------'
+    print 'stddevs', len(stddevs)
+    print stddevs
+    print '--------------------------------------------'
+    #exit()
+    detrended_full_x = [removeTrend1D(trends[i], t, time_series[i], masks[i]) for i in range(num_series)]
+    detrended_time_series = NP.zeros([num_series, detrended_full_x[0].shape[0]])
     print 'detrended_time_series.shape', detrended_time_series.shape
     for i in range(num_series):
-        print 'full_x[%0d].shape'%i, full_x[i].shape
-    predictions = predictTimeSeries(coefficients, t, full_x[0], full_x[1], number_training, max_lag, masks)
+        print 'full_x[%0d].shape'%i, detrended_full_x[i].shape
+    detrended_predictions = predictTimeSeries(coefficients, means, stddevs, t, detrended_full_x[0], detrended_full_x[1], number_training, max_lag, masks)
+    predictions = addTrend1D(trends[1], t, detrended_predictions, masks[1]) 
     print '--------------------------------------------'
     print 'predictions =', predictions.shape
     # print predictions
-    predicted_time_series = NP.vstack([t, full_x[0], full_x[1], predictions])
+    full_x = [NP.array(time_series[i]) for i in range(num_series)]
+    
     print 't.shape', t.shape
     print 'full_x[0].shape', full_x[0].shape
     print 'full_x[1].shape', full_x[1].shape
     print 'predictions.shape', predictions.shape
+    
+    predicted_time_series = NP.vstack([t, full_x[0], full_x[1], predictions])
+    
     print 'predicted_time_series.shape', predicted_time_series.shape
     # retrend !@#$\\
     prediction_header = ['t', 'x', 'y', 'y_pred']
